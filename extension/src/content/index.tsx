@@ -1,15 +1,16 @@
-import { installGrokStreamInterceptor } from "../lib/grokStream";
+import { installGrokStreamBridge } from "../lib/grokStream";
 import { setupDebug } from "../lib/debug";
 
 setupDebug();
-installGrokStreamInterceptor();
+installGrokStreamBridge();
 // Mark when content script entry runs for tests
 (window as any).__grok_content_loaded = true;
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import "../styles/globals.css";
 
-console.log("[Grok Retry] Extension script starting...");
+const BUILD_ID = "CS-20260316C";
+console.log(`[Grok Retry] Extension script starting... (${BUILD_ID})`);
 
 // Singleton flag to prevent multiple initializations
 let isInitialized = false;

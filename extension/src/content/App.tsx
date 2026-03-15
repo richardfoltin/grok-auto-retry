@@ -86,7 +86,7 @@ const ImaginePostApp: React.FC = () => {
 	const miniDrag = useMiniToggleDrag();
 	const [showDebug, setShowDebug] = React.useState(false);
 	const [settingsOpen, setSettingsOpen] = React.useState(false);
-	const nextVideoTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
+	const nextVideoTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 	const hasCheckedInterruptedSession = React.useRef(false);
 	const [showResults, setShowResults] = React.useState(false);
 	const lastSummarySignatureRef = React.useRef<string | null>(null);
@@ -218,8 +218,10 @@ const ImaginePostApp: React.FC = () => {
 		// Check if we've reached the video goal
 		if (newCount >= videoGoal) {
 			console.log(`[Grok Retry] Video goal reached! Generated ${newCount}/${videoGoal} videos`);
-			endSession("success");
-			sessionPromptRef.current = null;
+			// Don't call endSession here: incrementVideosGenerated hasn't settled
+			// in React state yet, so endSession would capture stale counts.
+			// A dedicated useEffect below watches videosGenerated and ends the
+			// session once the state has actually updated.
 		} else {
 			// Continue generating - restart the cycle
 			console.log(`[Grok Retry] Progress: ${newCount}/${videoGoal} videos generated, continuing...`);
@@ -246,12 +248,21 @@ const ImaginePostApp: React.FC = () => {
 		incrementVideosGenerated,
 		videosGenerated,
 		videoGoal,
-		endSession,
 		isSessionActive,
 		clickMakeVideoButton,
 		lastPromptValue,
 		recordPromptOutcome,
 	]);
+
+	// End session when video goal is reached — runs after videosGenerated state
+	// has settled so endSession captures the correct counts in the summary.
+	useEffect(() => {
+		if (isSessionActive && videosGenerated > 0 && videosGenerated >= videoGoal) {
+			console.log(`[Grok Retry] Goal effect: ending session (${videosGenerated}/${videoGoal})`);
+			endSession("success");
+			sessionPromptRef.current = null;
+		}
+	}, [isSessionActive, videosGenerated, videoGoal, endSession]);
 
 	// Keep success detector running while on imagine post page, not just when session is active
 	// This ensures we detect success even if session timeout occurs during video generation
