@@ -8,7 +8,7 @@
 (function () {
 	"use strict";
 
-	var BUILD_ID = "MW-20260316A";
+	var BUILD_ID = "MW-20260316B";
 
 	if (window.__grokRetryInterceptorInstalled) return;
 	window.__grokRetryInterceptorInstalled = true;
@@ -166,6 +166,78 @@
 		}
 		return response;
 	};
+
+	/* ---- prompt-writing bridge (isolated world -> main world) ---- */
+
+	window.addEventListener("message", function (event) {
+		if (event.source !== window) return;
+		var msg = event.data;
+		if (!msg || msg.source !== "grok-retry-cs") return;
+
+		if (msg.type === "write-prompt") {
+			var selector = msg.selector;
+			var value = msg.value;
+			if (!selector || !value) return;
+
+			var el = document.querySelector(selector);
+			if (!el) {
+				console.warn("[Grok Retry MW] write-prompt: element not found for", selector);
+				return;
+			}
+
+			var written = false;
+			if (el instanceof HTMLTextAreaElement) {
+				var setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value");
+				if (setter && setter.set) {
+					setter.set.call(el, value);
+				} else {
+					el.value = value;
+				}
+				el.dispatchEvent(new Event("input", { bubbles: true }));
+				el.dispatchEvent(new Event("change", { bubbles: true }));
+				written = true;
+			} else if (el instanceof HTMLInputElement) {
+				var setter2 = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value");
+				if (setter2 && setter2.set) {
+					setter2.set.call(el, value);
+				} else {
+					el.value = value;
+				}
+				el.dispatchEvent(new Event("input", { bubbles: true }));
+				el.dispatchEvent(new Event("change", { bubbles: true }));
+				written = true;
+			} else if (el.isContentEditable || el.getAttribute("contenteditable") === "true") {
+				el.focus();
+				try {
+					document.execCommand("selectAll");
+					var ok = document.execCommand("insertText", false, value);
+					if (!ok) {
+						el.innerHTML = "";
+						el.appendChild(document.createTextNode(value));
+					}
+				} catch (_) {
+					el.innerHTML = "";
+					el.appendChild(document.createTextNode(value));
+				}
+				el.dispatchEvent(new Event("input", { bubbles: true }));
+				written = true;
+			}
+
+			console.log("[Grok Retry MW] write-prompt:", written ? "OK" : "unsupported element", el.tagName);
+		}
+
+		if (msg.type === "click-button") {
+			var btnSelector = msg.selector;
+			if (!btnSelector) return;
+			var btn = document.querySelector(btnSelector);
+			if (btn) {
+				btn.click();
+				console.log("[Grok Retry MW] click-button: clicked", btnSelector);
+			} else {
+				console.warn("[Grok Retry MW] click-button: not found", btnSelector);
+			}
+		}
+	});
 
 	console.log("[Grok Retry] Main world fetch interceptor installed (" + BUILD_ID + ")");
 })();

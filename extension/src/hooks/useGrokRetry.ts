@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { getGenerateButtonSelectors, getPromptSelectorCandidates } from "../config/selectors";
-import { findPromptInput, writePromptValue } from "../lib/promptInput";
+import { findPromptInput, writePromptValue, writePromptViaBridge, buildSelectorFor } from "../lib/promptInput";
 import { usePostStorage } from "./useSessionStorage";
 import type { SessionOutcome, SessionSummary } from "./useSessionStorage";
 import type { PostRouteIdentity } from "./usePostId";
@@ -688,34 +688,49 @@ export const useGrokRetry = ({ postId, mediaId }: PostRouteIdentity) => {
 
 			const valueToSet =
 				typeof promptValue === "string" && promptValue.length > 0 ? promptValue : postData.lastPromptValue;
+			let usedBridge = false;
 			if (valueToSet) {
-				const restored = writePromptValue(promptEntry.element, valueToSet);
-				if (restored) {
-					console.log("[Grok Retry] Restored prompt to input:", valueToSet.substring(0, 50) + "...");
+				// Try the main-world bridge first (React-compatible) then fall back to direct write
+				const bridgeSelector = buildSelectorFor(promptEntry.element);
+				if (bridgeSelector) {
+					writePromptViaBridge(bridgeSelector, valueToSet);
+					usedBridge = true;
+					console.log("[Grok Retry] Wrote prompt via bridge:", valueToSet.substring(0, 50) + "...");
 				} else {
-					console.log("[Grok Retry] Failed to restore prompt using target element");
-					appendLog("Failed to restore prompt into detected input", "warn");
+					const restored = writePromptValue(promptEntry.element, valueToSet);
+					if (restored) {
+						console.log("[Grok Retry] Restored prompt to input (direct):", valueToSet.substring(0, 50) + "...");
+					} else {
+						console.log("[Grok Retry] Failed to restore prompt using target element");
+						appendLog("Failed to restore prompt into detected input", "warn");
+					}
 				}
 			} else {
 				console.log("[Grok Retry] Warning: No prompt value to restore!");
 				appendLog("No prompt value available to restore", "warn");
 			}
 
-			button.click();
-			setLastClickTime(now);
-			// Expose last attempt per session key globally for detectors to correlate success across tabs
-			const w = window as any;
-			w.__grok_attempts = w.__grok_attempts || {};
-			const attemptKey = sessionKey ?? postId ?? "__unknown__";
-			w.__grok_attempts[attemptKey] = now;
+			const doClick = () => {
+				button!.click();
+				setLastClickTime(now);
+				const w = window as any;
+				w.__grok_attempts = w.__grok_attempts || {};
+				const attemptKey = sessionKey ?? postId ?? "__unknown__";
+				w.__grok_attempts[attemptKey] = now;
+				save("isSessionActive", true);
+				save("lastAttemptTime", now);
+				save("canRetry", false);
+				console.log("[Grok Retry] Clicked button");
+				beginProgressTracking();
+			};
 
-			// Mark session as active; retry count is incremented by scheduler before click
-			save("isSessionActive", true);
-			save("lastAttemptTime", now);
-			// Reset retry permission until next failure notification
-			save("canRetry", false);
-			console.log("[Grok Retry] Clicked button");
-			beginProgressTracking();
+			// When using the bridge, delay the click so the main-world postMessage
+			// has time to update React state before the button handler reads it.
+			if (usedBridge) {
+				setTimeout(doClick, 150);
+			} else {
+				doClick();
+			}
 
 			return true;
 		},
