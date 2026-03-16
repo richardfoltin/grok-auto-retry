@@ -1,300 +1,300 @@
-import { useRef, useSyncExternalStore } from "react";
+import { useRef, useSyncExternalStore } from 'react';
 
-export type VideoAttemptStatus = "pending" | "running" | "completed" | "moderated";
+export type VideoAttemptStatus = 'pending' | 'running' | 'completed' | 'moderated';
 
 export interface VideoAttemptState {
-	videoId: string;
-	videoPostId: string;
-	parentPostId: string | null;
-	prompt: string | null;
-	imageReference: string | null;
-	progress: number;
-	moderated: boolean;
-	status: VideoAttemptStatus;
-	sideBySideIndex: number | null;
-	mode: string | null;
-	width: number | null;
-	height: number | null;
-	lastUpdate: number;
+    videoId: string;
+    videoPostId: string;
+    parentPostId: string | null;
+    prompt: string | null;
+    imageReference: string | null;
+    progress: number;
+    moderated: boolean;
+    status: VideoAttemptStatus;
+    sideBySideIndex: number | null;
+    mode: string | null;
+    width: number | null;
+    height: number | null;
+    lastUpdate: number;
 }
 
 export interface ParentSessionState {
-	parentPostId: string;
-	conversationId: string | null;
-	prompt: string | null;
-	lastUserResponseId: string | null;
-	lastAssistantResponseId: string | null;
-	attempts: string[];
-	lastUpdate: number;
+    parentPostId: string;
+    conversationId: string | null;
+    prompt: string | null;
+    lastUserResponseId: string | null;
+    lastAssistantResponseId: string | null;
+    attempts: string[];
+    lastUpdate: number;
 }
 
 export type GrokStreamEvent =
-	| { type: "conversation-start"; conversationId: string; createdAt?: string }
-	| {
-			type: "prompt-submitted";
-			conversationId: string | null;
-			parentPostId: string | null;
-			responseId: string;
-			prompt: string;
-			createdAt?: string;
-	  }
-	| { type: "assistant-message"; responseId: string; parentPostId: string | null; message: string }
-	| { type: "video-progress"; attempt: VideoAttemptState };
+    | { type: 'conversation-start'; conversationId: string; createdAt?: string }
+    | {
+          type: 'prompt-submitted';
+          conversationId: string | null;
+          parentPostId: string | null;
+          responseId: string;
+          prompt: string;
+          createdAt?: string;
+      }
+    | { type: 'assistant-message'; responseId: string; parentPostId: string | null; message: string }
+    | { type: 'video-progress'; attempt: VideoAttemptState };
 
 interface GrokStreamSnapshot {
-	version: number;
-	parents: Record<string, ParentSessionState>;
-	videos: Record<string, VideoAttemptState>;
-	lastEvent: GrokStreamEvent | null;
+    version: number;
+    parents: Record<string, ParentSessionState>;
+    videos: Record<string, VideoAttemptState>;
+    lastEvent: GrokStreamEvent | null;
 }
 
 interface MutationResult {
-	parents?: Record<string, ParentSessionState>;
-	videos?: Record<string, VideoAttemptState>;
-	lastEvent?: GrokStreamEvent | null;
+    parents?: Record<string, ParentSessionState>;
+    videos?: Record<string, VideoAttemptState>;
+    lastEvent?: GrokStreamEvent | null;
 }
 
 const listeners = new Set<() => void>();
 let snapshot: GrokStreamSnapshot = {
-	version: 0,
-	parents: {},
-	videos: {},
-	lastEvent: null,
+    version: 0,
+    parents: {},
+    videos: {},
+    lastEvent: null,
 };
 
 let interceptInstalled = false;
 
 function notify() {
-	for (const listener of listeners) {
-		try {
-			listener();
-		} catch (error) {
-			console.warn("[Grok Retry] Stream listener error:", error);
-		}
-	}
+    for (const listener of listeners) {
+        try {
+            listener();
+        } catch (error) {
+            console.warn('[Grok Retry] Stream listener error:', error);
+        }
+    }
 }
 
 function mutateState(mutator: () => MutationResult | void) {
-	const result = mutator();
-	if (!result) {
-		return;
-	}
-	snapshot = {
-		version: snapshot.version + 1,
-		parents: result.parents ?? snapshot.parents,
-		videos: result.videos ?? snapshot.videos,
-		lastEvent: result.lastEvent ?? snapshot.lastEvent,
-	};
-	notify();
+    const result = mutator();
+    if (!result) {
+        return;
+    }
+    snapshot = {
+        version: snapshot.version + 1,
+        parents: result.parents ?? snapshot.parents,
+        videos: result.videos ?? snapshot.videos,
+        lastEvent: result.lastEvent ?? snapshot.lastEvent,
+    };
+    notify();
 }
 
 function getParentSnapshot(parentPostId: string): ParentSessionState {
-	return (
-		snapshot.parents[parentPostId] ?? {
-			parentPostId,
-			conversationId: null,
-			prompt: null,
-			lastUserResponseId: null,
-			lastAssistantResponseId: null,
-			attempts: [],
-			lastUpdate: Date.now(),
-		}
-	);
+    return (
+        snapshot.parents[parentPostId] ?? {
+            parentPostId,
+            conversationId: null,
+            prompt: null,
+            lastUserResponseId: null,
+            lastAssistantResponseId: null,
+            attempts: [],
+            lastUpdate: Date.now(),
+        }
+    );
 }
 
 function recordPromptEvent(params: {
-	conversationId: string | null;
-	parentPostId: string | null;
-	responseId: string;
-	prompt: string;
-	createdAt?: string;
+    conversationId: string | null;
+    parentPostId: string | null;
+    responseId: string;
+    prompt: string;
+    createdAt?: string;
 }) {
-	if (!params.parentPostId) {
-		return;
-	}
-	const parent = getParentSnapshot(params.parentPostId);
-	const updated: ParentSessionState = {
-		...parent,
-		conversationId: params.conversationId ?? parent.conversationId,
-		prompt: params.prompt ?? parent.prompt,
-		lastUserResponseId: params.responseId,
-		lastUpdate: Date.now(),
-	};
-	mutateState(() => ({
-		parents: { ...snapshot.parents, [params.parentPostId as string]: updated },
-		lastEvent: {
-			type: "prompt-submitted",
-			conversationId: updated.conversationId,
-			parentPostId: params.parentPostId,
-			responseId: params.responseId,
-			prompt: params.prompt,
-			createdAt: params.createdAt,
-		},
-	}));
+    if (!params.parentPostId) {
+        return;
+    }
+    const parent = getParentSnapshot(params.parentPostId);
+    const updated: ParentSessionState = {
+        ...parent,
+        conversationId: params.conversationId ?? parent.conversationId,
+        prompt: params.prompt ?? parent.prompt,
+        lastUserResponseId: params.responseId,
+        lastUpdate: Date.now(),
+    };
+    mutateState(() => ({
+        parents: { ...snapshot.parents, [params.parentPostId as string]: updated },
+        lastEvent: {
+            type: 'prompt-submitted',
+            conversationId: updated.conversationId,
+            parentPostId: params.parentPostId,
+            responseId: params.responseId,
+            prompt: params.prompt,
+            createdAt: params.createdAt,
+        },
+    }));
 }
 
 function recordAssistantMessage(params: { parentPostId: string | null; responseId: string; message: string }) {
-	if (!params.parentPostId) {
-		return;
-	}
-	const parent = getParentSnapshot(params.parentPostId);
-	const updated: ParentSessionState = {
-		...parent,
-		lastAssistantResponseId: params.responseId,
-		lastUpdate: Date.now(),
-	};
-	mutateState(() => ({
-		parents: { ...snapshot.parents, [params.parentPostId as string]: updated },
-		lastEvent: {
-			type: "assistant-message",
-			responseId: params.responseId,
-			parentPostId: params.parentPostId,
-			message: params.message,
-		},
-	}));
+    if (!params.parentPostId) {
+        return;
+    }
+    const parent = getParentSnapshot(params.parentPostId);
+    const updated: ParentSessionState = {
+        ...parent,
+        lastAssistantResponseId: params.responseId,
+        lastUpdate: Date.now(),
+    };
+    mutateState(() => ({
+        parents: { ...snapshot.parents, [params.parentPostId as string]: updated },
+        lastEvent: {
+            type: 'assistant-message',
+            responseId: params.responseId,
+            parentPostId: params.parentPostId,
+            message: params.message,
+        },
+    }));
 }
 
 function recordConversationStart(conversationId: string, createdAt?: string) {
-	mutateState(() => ({
-		lastEvent: { type: "conversation-start", conversationId, createdAt },
-	}));
+    mutateState(() => ({
+        lastEvent: { type: 'conversation-start', conversationId, createdAt },
+    }));
 }
 
 function statusFromProgress(progress: number, moderated: boolean): VideoAttemptStatus {
-	if (moderated) {
-		return "moderated";
-	}
-	if (progress >= 100) {
-		return "completed";
-	}
-	if (progress > 0) {
-		return "running";
-	}
-	return "pending";
+    if (moderated) {
+        return 'moderated';
+    }
+    if (progress >= 100) {
+        return 'completed';
+    }
+    if (progress > 0) {
+        return 'running';
+    }
+    return 'pending';
 }
 
 function recordVideoProgress(payload: {
-	videoId?: string | null;
-	videoPostId?: string | null;
-	parentPostId?: string | null;
-	prompt?: string | null;
-	imageReference?: string | null;
-	progress?: number | null;
-	moderated?: boolean | null;
-	sideBySideIndex?: number | null;
-	mode?: string | null;
-	width?: number | null;
-	height?: number | null;
+    videoId?: string | null;
+    videoPostId?: string | null;
+    parentPostId?: string | null;
+    prompt?: string | null;
+    imageReference?: string | null;
+    progress?: number | null;
+    moderated?: boolean | null;
+    sideBySideIndex?: number | null;
+    mode?: string | null;
+    width?: number | null;
+    height?: number | null;
 }) {
-	const videoPostId = payload.videoPostId ?? payload.videoId;
-	if (!videoPostId) {
-		return;
-	}
+    const videoPostId = payload.videoPostId ?? payload.videoId;
+    if (!videoPostId) {
+        return;
+    }
 
-	const existing = snapshot.videos[videoPostId];
-	const progress = typeof payload.progress === "number" ? payload.progress : (existing?.progress ?? 0);
-	const moderated = typeof payload.moderated === "boolean" ? payload.moderated : (existing?.moderated ?? false);
-	const now = Date.now();
-	const attempt: VideoAttemptState = {
-		videoId: payload.videoId ?? existing?.videoId ?? videoPostId,
-		videoPostId,
-		parentPostId: payload.parentPostId ?? existing?.parentPostId ?? null,
-		prompt: payload.prompt ?? existing?.prompt ?? null,
-		imageReference: payload.imageReference ?? existing?.imageReference ?? null,
-		progress,
-		moderated,
-		status: statusFromProgress(progress, moderated),
-		sideBySideIndex: payload.sideBySideIndex ?? existing?.sideBySideIndex ?? null,
-		mode: payload.mode ?? existing?.mode ?? null,
-		width: payload.width ?? existing?.width ?? null,
-		height: payload.height ?? existing?.height ?? null,
-		lastUpdate: now,
-	};
+    const existing = snapshot.videos[videoPostId];
+    const progress = typeof payload.progress === 'number' ? payload.progress : (existing?.progress ?? 0);
+    const moderated = typeof payload.moderated === 'boolean' ? payload.moderated : (existing?.moderated ?? false);
+    const now = Date.now();
+    const attempt: VideoAttemptState = {
+        videoId: payload.videoId ?? existing?.videoId ?? videoPostId,
+        videoPostId,
+        parentPostId: payload.parentPostId ?? existing?.parentPostId ?? null,
+        prompt: payload.prompt ?? existing?.prompt ?? null,
+        imageReference: payload.imageReference ?? existing?.imageReference ?? null,
+        progress,
+        moderated,
+        status: statusFromProgress(progress, moderated),
+        sideBySideIndex: payload.sideBySideIndex ?? existing?.sideBySideIndex ?? null,
+        mode: payload.mode ?? existing?.mode ?? null,
+        width: payload.width ?? existing?.width ?? null,
+        height: payload.height ?? existing?.height ?? null,
+        lastUpdate: now,
+    };
 
-	const videos = { ...snapshot.videos, [videoPostId]: attempt };
-	let parents = snapshot.parents;
+    const videos = { ...snapshot.videos, [videoPostId]: attempt };
+    let parents = snapshot.parents;
 
-	if (attempt.parentPostId) {
-		const parentId = attempt.parentPostId;
-		const parent = getParentSnapshot(parentId);
-		const attempts = parent.attempts.includes(videoPostId) ? parent.attempts : [...parent.attempts, videoPostId];
-		const updatedParent: ParentSessionState = {
-			...parent,
-			attempts,
-			lastUpdate: now,
-		};
-		parents = { ...snapshot.parents, [parentId]: updatedParent };
-	}
+    if (attempt.parentPostId) {
+        const parentId = attempt.parentPostId;
+        const parent = getParentSnapshot(parentId);
+        const attempts = parent.attempts.includes(videoPostId) ? parent.attempts : [...parent.attempts, videoPostId];
+        const updatedParent: ParentSessionState = {
+            ...parent,
+            attempts,
+            lastUpdate: now,
+        };
+        parents = { ...snapshot.parents, [parentId]: updatedParent };
+    }
 
-	mutateState(() => ({
-		videos,
-		parents,
-		lastEvent: { type: "video-progress", attempt },
-	}));
+    mutateState(() => ({
+        videos,
+        parents,
+        lastEvent: { type: 'video-progress', attempt },
+    }));
 }
 
 function parseParentPostIdFromMetadata(metadata: any): string | null {
-	const override = metadata?.modelConfigOverride?.modelMap?.videoGenModelConfig;
-	if (override?.parentPostId && typeof override.parentPostId === "string") {
-		return override.parentPostId;
-	}
-	return null;
+    const override = metadata?.modelConfigOverride?.modelMap?.videoGenModelConfig;
+    if (override?.parentPostId && typeof override.parentPostId === 'string') {
+        return override.parentPostId;
+    }
+    return null;
 }
 
 function processParsedPayload(payload: any) {
-	const result = payload?.result;
-	if (!result) {
-		return;
-	}
+    const result = payload?.result;
+    if (!result) {
+        return;
+    }
 
-	if (result.conversation && typeof result.conversation.conversationId === "string") {
-		recordConversationStart(result.conversation.conversationId, result.conversation.createTime);
-	}
+    if (result.conversation && typeof result.conversation.conversationId === 'string') {
+        recordConversationStart(result.conversation.conversationId, result.conversation.createTime);
+    }
 
-	const response = result.response;
-	if (response?.userResponse) {
-		const user = response.userResponse;
-		const parentPostId = parseParentPostIdFromMetadata(user.metadata) ?? null;
-		recordPromptEvent({
-			conversationId: result.conversation?.conversationId ?? null,
-			parentPostId,
-			responseId: user.responseId,
-			prompt: user.message ?? "",
-			createdAt: user.createTime,
-		});
-	}
+    const response = result.response;
+    if (response?.userResponse) {
+        const user = response.userResponse;
+        const parentPostId = parseParentPostIdFromMetadata(user.metadata) ?? null;
+        recordPromptEvent({
+            conversationId: result.conversation?.conversationId ?? null,
+            parentPostId,
+            responseId: user.responseId,
+            prompt: user.message ?? '',
+            createdAt: user.createTime,
+        });
+    }
 
-	if (response?.modelResponse) {
-		const parentPostId = parseParentPostIdFromMetadata(response.modelResponse.metadata) ?? null;
-		recordAssistantMessage({
-			parentPostId,
-			responseId: response.modelResponse.responseId,
-			message: response.modelResponse.message ?? "",
-		});
-	}
+    if (response?.modelResponse) {
+        const parentPostId = parseParentPostIdFromMetadata(response.modelResponse.metadata) ?? null;
+        recordAssistantMessage({
+            parentPostId,
+            responseId: response.modelResponse.responseId,
+            message: response.modelResponse.message ?? '',
+        });
+    }
 
-	if (response?.streamingVideoGenerationResponse) {
-		const data = response.streamingVideoGenerationResponse;
-		recordVideoProgress({
-			videoId: data.videoId ?? null,
-			videoPostId: data.videoPostId ?? null,
-			parentPostId: data.parentPostId ?? null,
-			prompt: data.videoPrompt ?? null,
-			imageReference: data.imageReference ?? null,
-			progress: typeof data.progress === "number" ? data.progress : null,
-			moderated: typeof data.moderated === "boolean" ? data.moderated : null,
-			sideBySideIndex: typeof data.sideBySideIndex === "number" ? data.sideBySideIndex : null,
-			mode: typeof data.mode === "string" ? data.mode : null,
-			width: typeof data.width === "number" ? data.width : null,
-			height: typeof data.height === "number" ? data.height : null,
-		});
-	}
+    if (response?.streamingVideoGenerationResponse) {
+        const data = response.streamingVideoGenerationResponse;
+        recordVideoProgress({
+            videoId: data.videoId ?? null,
+            videoPostId: data.videoPostId ?? null,
+            parentPostId: data.parentPostId ?? null,
+            prompt: data.videoPrompt ?? null,
+            imageReference: data.imageReference ?? null,
+            progress: typeof data.progress === 'number' ? data.progress : null,
+            moderated: typeof data.moderated === 'boolean' ? data.moderated : null,
+            sideBySideIndex: typeof data.sideBySideIndex === 'number' ? data.sideBySideIndex : null,
+            mode: typeof data.mode === 'string' ? data.mode : null,
+            width: typeof data.width === 'number' ? data.width : null,
+            height: typeof data.height === 'number' ? data.height : null,
+        });
+    }
 }
 
 export function installGrokStreamInterceptor() {
-	// Legacy no-op: fetch interception now runs in the MAIN world
-	// via mainWorld.js declared in manifest.json.
-	// Use installGrokStreamBridge() instead.
+    // Legacy no-op: fetch interception now runs in the MAIN world
+    // via mainWorld.js declared in manifest.json.
+    // Use installGrokStreamBridge() instead.
 }
 
 /**
@@ -303,126 +303,126 @@ export function installGrokStreamInterceptor() {
  * mainWorld.js and feeds them into the existing record* helpers.
  */
 export function installGrokStreamBridge() {
-	if (interceptInstalled) return;
-	interceptInstalled = true;
+    if (interceptInstalled) return;
+    interceptInstalled = true;
 
-	window.addEventListener("message", (e: MessageEvent) => {
-		if (e.source !== window || !e.data || e.data.source !== "grok-retry-mw") return;
-		try {
-			const { type, payload } = e.data;
-			if (type === "grok-retry:payload" && payload) {
-				processParsedPayload(payload);
-			} else if (type === "grok-retry:media-list" && payload) {
-				processMediaPostListData(payload);
-			}
-		} catch (err) {
-			console.warn("[Grok Retry] Bridge message error:", err);
-		}
-	});
+    window.addEventListener('message', (e: MessageEvent) => {
+        if (e.source !== window || !e.data || e.data.source !== 'grok-retry-mw') return;
+        try {
+            const { type, payload } = e.data;
+            if (type === 'grok-retry:payload' && payload) {
+                processParsedPayload(payload);
+            } else if (type === 'grok-retry:media-list' && payload) {
+                processMediaPostListData(payload);
+            }
+        } catch (err) {
+            console.warn('[Grok Retry] Bridge message error:', err);
+        }
+    });
 
-	console.log("[Grok Retry] Content-script bridge installed");
+    console.log('[Grok Retry] Content-script bridge installed');
 }
 
 function processMediaPostListData(data: any) {
-	if (data?.posts && Array.isArray(data.posts)) {
-		for (const post of data.posts) {
-			if (post.type === "VIDEO" && post.postId) {
-				const progress = post.metadata?.progress ?? (post.videoUrl ? 100 : 0);
-				const moderated = post.moderated === true;
-				recordVideoProgress({
-					videoPostId: post.postId,
-					videoId: post.videoId ?? post.postId,
-					parentPostId: post.metadata?.parentPostId ?? null,
-					prompt: post.metadata?.videoPrompt ?? null,
-					imageReference: post.metadata?.imageReference ?? null,
-					progress,
-					moderated,
-					mode: post.metadata?.mode ?? null,
-					width: post.metadata?.width ?? null,
-					height: post.metadata?.height ?? null,
-					sideBySideIndex: post.metadata?.sideBySideIndex ?? null,
-				});
-			}
-		}
-	}
+    if (data?.posts && Array.isArray(data.posts)) {
+        for (const post of data.posts) {
+            if (post.type === 'VIDEO' && post.postId) {
+                const progress = post.metadata?.progress ?? (post.videoUrl ? 100 : 0);
+                const moderated = post.moderated === true;
+                recordVideoProgress({
+                    videoPostId: post.postId,
+                    videoId: post.videoId ?? post.postId,
+                    parentPostId: post.metadata?.parentPostId ?? null,
+                    prompt: post.metadata?.videoPrompt ?? null,
+                    imageReference: post.metadata?.imageReference ?? null,
+                    progress,
+                    moderated,
+                    mode: post.metadata?.mode ?? null,
+                    width: post.metadata?.width ?? null,
+                    height: post.metadata?.height ?? null,
+                    sideBySideIndex: post.metadata?.sideBySideIndex ?? null,
+                });
+            }
+        }
+    }
 }
 
 export function subscribeGrokStream(listener: () => void) {
-	listeners.add(listener);
-	return () => {
-		listeners.delete(listener);
-	};
+    listeners.add(listener);
+    return () => {
+        listeners.delete(listener);
+    };
 }
 
 export function getGrokStreamSnapshot(): GrokStreamSnapshot {
-	return snapshot;
+    return snapshot;
 }
 
 export function useGrokStreamSelector<T>(selector: (state: GrokStreamSnapshot) => T): T {
-	const selectorRef = useRef(selector);
-	selectorRef.current = selector;
-	const getSnapshot = () => selectorRef.current(snapshot);
-	return useSyncExternalStore(subscribeGrokStream, getSnapshot, getSnapshot);
+    const selectorRef = useRef(selector);
+    selectorRef.current = selector;
+    const getSnapshot = () => selectorRef.current(snapshot);
+    return useSyncExternalStore(subscribeGrokStream, getSnapshot, getSnapshot);
 }
 
 export function useGrokParentSession(parentPostId: string | null | undefined): ParentSessionState | undefined {
-	return useGrokStreamSelector((state) => {
-		if (!parentPostId) {
-			return undefined;
-		}
-		return state.parents[parentPostId];
-	});
+    return useGrokStreamSelector((state) => {
+        if (!parentPostId) {
+            return undefined;
+        }
+        return state.parents[parentPostId];
+    });
 }
 
 export function useGrokVideoAttempt(videoPostId: string | null | undefined): VideoAttemptState | undefined {
-	return useGrokStreamSelector((state) => {
-		if (!videoPostId) {
-			return undefined;
-		}
-		return state.videos[videoPostId];
-	});
+    return useGrokStreamSelector((state) => {
+        if (!videoPostId) {
+            return undefined;
+        }
+        return state.videos[videoPostId];
+    });
 }
 
 export function useLatestAttemptForParent(parentPostId: string | null | undefined): VideoAttemptState | undefined {
-	return useGrokStreamSelector((state) => {
-		if (!parentPostId) {
-			return undefined;
-		}
-		const parent = state.parents[parentPostId];
-		if (!parent) {
-			return undefined;
-		}
-		for (let index = parent.attempts.length - 1; index >= 0; index -= 1) {
-			const attemptId = parent.attempts[index];
-			const attempt = state.videos[attemptId];
-			if (attempt) {
-				return attempt;
-			}
-		}
-		return undefined;
-	});
+    return useGrokStreamSelector((state) => {
+        if (!parentPostId) {
+            return undefined;
+        }
+        const parent = state.parents[parentPostId];
+        if (!parent) {
+            return undefined;
+        }
+        for (let index = parent.attempts.length - 1; index >= 0; index -= 1) {
+            const attemptId = parent.attempts[index];
+            const attempt = state.videos[attemptId];
+            if (attempt) {
+                return attempt;
+            }
+        }
+        return undefined;
+    });
 }
 
 export function getLatestAttemptForParent(parentPostId: string | null | undefined): VideoAttemptState | undefined {
-	if (!parentPostId) {
-		return undefined;
-	}
-	const parent = snapshot.parents[parentPostId];
-	if (!parent) {
-		return undefined;
-	}
-	for (let i = parent.attempts.length - 1; i >= 0; i -= 1) {
-		const attemptId = parent.attempts[i];
-		const attempt = snapshot.videos[attemptId];
-		if (attempt) {
-			return attempt;
-		}
-	}
-	return undefined;
+    if (!parentPostId) {
+        return undefined;
+    }
+    const parent = snapshot.parents[parentPostId];
+    if (!parent) {
+        return undefined;
+    }
+    for (let i = parent.attempts.length - 1; i >= 0; i -= 1) {
+        const attemptId = parent.attempts[i];
+        const attempt = snapshot.videos[attemptId];
+        if (attempt) {
+            return attempt;
+        }
+    }
+    return undefined;
 }
 
 export function ingestGrokStreamPayload(payload: unknown) {
-	processParsedPayload(payload);
+    processParsedPayload(payload);
 }
 
 /**
@@ -430,58 +430,58 @@ export function ingestGrokStreamPayload(payload: unknown) {
  * This is used when a session ends to clean up all related video generation attempts
  */
 export function clearVideoAttemptsByImageReference(imageReference: string | null) {
-	if (!imageReference) {
-		return;
-	}
+    if (!imageReference) {
+        return;
+    }
 
-	const videosToRemove: string[] = [];
-	const parentsToUpdate: Record<string, ParentSessionState> = {};
+    const videosToRemove: string[] = [];
+    const parentsToUpdate: Record<string, ParentSessionState> = {};
 
-	// Find all videos with matching imageReference
-	for (const [videoPostId, attempt] of Object.entries(snapshot.videos)) {
-		if (attempt.imageReference === imageReference) {
-			videosToRemove.push(videoPostId);
-			console.log(`[Grok Retry] Clearing video attempt ${videoPostId} for image ${imageReference}`);
-		}
-	}
+    // Find all videos with matching imageReference
+    for (const [videoPostId, attempt] of Object.entries(snapshot.videos)) {
+        if (attempt.imageReference === imageReference) {
+            videosToRemove.push(videoPostId);
+            console.log(`[Grok Retry] Clearing video attempt ${videoPostId} for image ${imageReference}`);
+        }
+    }
 
-	if (videosToRemove.length === 0) {
-		return;
-	}
+    if (videosToRemove.length === 0) {
+        return;
+    }
 
-	// Create updated videos object without the removed attempts
-	const updatedVideos = { ...snapshot.videos };
-	for (const videoPostId of videosToRemove) {
-		delete updatedVideos[videoPostId];
-	}
+    // Create updated videos object without the removed attempts
+    const updatedVideos = { ...snapshot.videos };
+    for (const videoPostId of videosToRemove) {
+        delete updatedVideos[videoPostId];
+    }
 
-	// Update parent sessions to remove references to cleared attempts
-	for (const [parentId, parent] of Object.entries(snapshot.parents)) {
-		const filteredAttempts = parent.attempts.filter((id) => !videosToRemove.includes(id));
-		if (filteredAttempts.length !== parent.attempts.length) {
-			parentsToUpdate[parentId] = {
-				...parent,
-				attempts: filteredAttempts,
-				lastUpdate: Date.now(),
-			};
-		}
-	}
+    // Update parent sessions to remove references to cleared attempts
+    for (const [parentId, parent] of Object.entries(snapshot.parents)) {
+        const filteredAttempts = parent.attempts.filter((id) => !videosToRemove.includes(id));
+        if (filteredAttempts.length !== parent.attempts.length) {
+            parentsToUpdate[parentId] = {
+                ...parent,
+                attempts: filteredAttempts,
+                lastUpdate: Date.now(),
+            };
+        }
+    }
 
-	mutateState(() => ({
-		videos: updatedVideos,
-		parents: Object.keys(parentsToUpdate).length > 0 ? { ...snapshot.parents, ...parentsToUpdate } : snapshot.parents,
-	}));
+    mutateState(() => ({
+        videos: updatedVideos,
+        parents: Object.keys(parentsToUpdate).length > 0 ? { ...snapshot.parents, ...parentsToUpdate } : snapshot.parents,
+    }));
 
-	console.log(`[Grok Retry] Cleared ${videosToRemove.length} video attempts for image ${imageReference}`);
+    console.log(`[Grok Retry] Cleared ${videosToRemove.length} video attempts for image ${imageReference}`);
 }
 
 export function resetGrokStreamStateForTests() {
-	snapshot = {
-		version: 0,
-		parents: {},
-		videos: {},
-		lastEvent: null,
-	};
-	listeners.clear();
-	interceptInstalled = false;
+    snapshot = {
+        version: 0,
+        parents: {},
+        videos: {},
+        lastEvent: null,
+    };
+    listeners.clear();
+    interceptInstalled = false;
 }

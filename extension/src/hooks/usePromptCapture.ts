@@ -1,65 +1,65 @@
-import { useCallback, useState } from "react";
+import { useCallback, useState } from 'react';
 import {
-	findPromptInput,
-	readPromptValue,
-	writePromptValue,
-	writePromptViaBridge,
-	buildSelectorFor,
-} from "../lib/promptInput";
+    findPromptInput,
+    readPromptValue,
+    writePromptValue,
+    writePromptViaBridge,
+    buildSelectorFor,
+} from '../lib/promptInput';
 const CAPTURE_COOLDOWN = 500; // ms between captures
 
 export const usePromptCapture = () => {
-	const [lastCaptureTime, setLastCaptureTime] = useState(0);
+    const [lastCaptureTime, setLastCaptureTime] = useState(0);
 
-	const capturePromptFromSite = useCallback(() => {
-		const now = Date.now();
-		if (now - lastCaptureTime < CAPTURE_COOLDOWN) {
-			return null;
-		}
+    const capturePromptFromSite = useCallback(() => {
+        const now = Date.now();
+        if (now - lastCaptureTime < CAPTURE_COOLDOWN) {
+            return null;
+        }
 
-		const entry = findPromptInput();
-		const textValue = entry ? readPromptValue(entry.element) : null;
-		if (entry && textValue) {
-			setLastCaptureTime(now);
-			const prefix = entry.type === "textarea" ? "textarea" : entry.type === "contenteditable" ? "editor" : "input";
-			console.log(`[Grok Retry] Captured prompt from ${prefix}:`, textValue.substring(0, 50) + "...");
-			return textValue;
-		}
+        const entry = findPromptInput();
+        const textValue = entry ? readPromptValue(entry.element) : null;
+        if (entry && textValue) {
+            setLastCaptureTime(now);
+            const prefix = entry.type === 'textarea' ? 'textarea' : entry.type === 'contenteditable' ? 'editor' : 'input';
+            console.log(`[Grok Retry] Captured prompt from ${prefix}:`, textValue.substring(0, 50) + '...');
+            return textValue;
+        }
 
-		return null;
-	}, [lastCaptureTime]);
+        return null;
+    }, [lastCaptureTime]);
 
-	const copyPromptToSite = useCallback((promptValue: string) => {
-		const entry = findPromptInput();
-		if (!entry) {
-			console.log("[Grok Retry] Prompt input not found");
-			return false;
-		}
+    const copyPromptToSite = useCallback((promptValue: string) => {
+        const entry = findPromptInput();
+        if (!entry) {
+            console.log('[Grok Retry] Prompt input not found');
+            return false;
+        }
 
-		// Use main-world bridge for React-compatible writes
-		const selector = buildSelectorFor(entry.element);
-		if (selector) {
-			writePromptViaBridge(selector, promptValue);
-			const prefix = entry.type === "textarea" ? "textarea" : entry.type === "contenteditable" ? "editor" : "input";
-			console.log(`[Grok Retry] Copied prompt to ${prefix} via bridge:`, promptValue.substring(0, 50) + "...");
-			return true;
-		}
+        // Use main-world bridge for React-compatible writes
+        const selector = buildSelectorFor(entry.element);
+        if (selector) {
+            writePromptViaBridge(selector, promptValue);
+            const prefix = entry.type === 'textarea' ? 'textarea' : entry.type === 'contenteditable' ? 'editor' : 'input';
+            console.log(`[Grok Retry] Copied prompt to ${prefix} via bridge:`, promptValue.substring(0, 50) + '...');
+            return true;
+        }
 
-		const success = writePromptValue(entry.element, promptValue);
-		if (success) {
-			const prefix = entry.type === "textarea" ? "textarea" : entry.type === "contenteditable" ? "editor" : "input";
-			console.log(`[Grok Retry] Copied prompt to ${prefix}:`, promptValue.substring(0, 50) + "...");
-		}
-		return success;
-	}, []);
+        const success = writePromptValue(entry.element, promptValue);
+        if (success) {
+            const prefix = entry.type === 'textarea' ? 'textarea' : entry.type === 'contenteditable' ? 'editor' : 'input';
+            console.log(`[Grok Retry] Copied prompt to ${prefix}:`, promptValue.substring(0, 50) + '...');
+        }
+        return success;
+    }, []);
 
-	// Set up listener - but we'll disable auto-capture to prevent conflicts
-	// Users should use the "Copy" button to explicitly capture the prompt
-	const setupClickListener = useCallback((_onCapture: (value: string) => void) => {
-		// Return no-op cleanup function
-		// Auto-capture disabled to prevent site changes from overwriting stored prompt
-		return () => {};
-	}, []);
+    // Set up listener - but we'll disable auto-capture to prevent conflicts
+    // Users should use the "Copy" button to explicitly capture the prompt
+    const setupClickListener = useCallback((_onCapture: (value: string) => void) => {
+        // Return no-op cleanup function
+        // Auto-capture disabled to prevent site changes from overwriting stored prompt
+        return () => {};
+    }, []);
 
-	return { capturePromptFromSite, copyPromptToSite, setupClickListener };
+    return { capturePromptFromSite, copyPromptToSite, setupClickListener };
 };
