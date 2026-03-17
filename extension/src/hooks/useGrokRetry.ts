@@ -5,8 +5,9 @@ import { usePostStorage } from './useSessionStorage';
 import type { SessionOutcome, SessionSummary } from './useSessionStorage';
 import type { PostRouteIdentity } from './usePostId';
 import { clearVideoAttemptsByImageReference, getLatestAttemptForParent } from '../lib/grokStream';
+import { useGlobalSettings } from './useGlobalSettings';
 
-const CLICK_COOLDOWN = 8000; // 8 seconds between retries
+const DEFAULT_CLICK_COOLDOWN = 8000; // fallback if global settings not loaded
 const SESSION_TIMEOUT = 120000; // 2 minutes - auto-end session if no success/failure feedback
 const STALL_DETECT_DELAY = 15000; // 15 seconds after click before checking for stall
 const PROGRESS_BUTTON_SELECTOR = 'button[aria-label="Video Options"]';
@@ -62,6 +63,9 @@ const parseProgress = (text?: string | null): number | null => {
 
 export const useGrokRetry = ({ postId, mediaId }: PostRouteIdentity) => {
     const { data: postData, save, saveAll, migrateState, isLoading, appendLog } = usePostStorage(postId, mediaId);
+    const { settings: globalSettings } = useGlobalSettings();
+    const retryClickCooldown = globalSettings.retryClickCooldown ?? DEFAULT_CLICK_COOLDOWN;
+    const videoGenerationDelay = globalSettings.videoGenerationDelay ?? DEFAULT_CLICK_COOLDOWN;
 
     // Expose migration function to window for usePostId to call
     useEffect(() => {
@@ -216,7 +220,15 @@ export const useGrokRetry = ({ postId, mediaId }: PostRouteIdentity) => {
 
         let progressLoggedOnce = false;
         const updateProgress = () => {
-            const value = scanProgressFromDom();
+            let value = scanProgressFromDom();
+            // grokStream fallback — DOM polling is throttled in background tabs
+            // but the MAIN world fetch interceptor keeps receiving streamed data.
+            if (value === null) {
+                const attempt = getLatestAttemptForParent(postId);
+                if (attempt && attempt.progress > 0) {
+                    value = attempt.progress;
+                }
+            }
             if (value !== null) {
                 if (!progressLoggedOnce) {
                     progressLoggedOnce = true;
@@ -566,6 +578,14 @@ export const useGrokRetry = ({ postId, mediaId }: PostRouteIdentity) => {
             const progressButton = document.querySelector<HTMLButtonElement>(PROGRESS_BUTTON_SELECTOR);
             progressPercent = parseProgress(progressButton?.textContent?.trim());
         }
+        if (progressPercent === null) {
+            // grokStream fallback — works even when tab is inactive since the MAIN world
+            // fetch interceptor continues to receive streamed progress data.
+            const attempt = getLatestAttemptForParent(postId);
+            if (attempt && attempt.progress > 0) {
+                progressPercent = attempt.progress;
+            }
+        }
 
         const attemptIndex = Math.max(0, postData.retryCount);
         const percentLabel = progressPercent !== null ? `${progressPercent}%` : 'unknown progress';
@@ -631,7 +651,8 @@ export const useGrokRetry = ({ postId, mediaId }: PostRouteIdentity) => {
                 );
                 return false;
             }
-            const timeUntilReady = lastClickTime + CLICK_COOLDOWN - now;
+            const cooldownBase = Math.max(lastClickTime, lastFailureTime);
+            const timeUntilReady = cooldownBase + retryClickCooldown - now;
 
             if (timeUntilReady > 0) {
                 console.log(`[Grok Retry] Cooldown active, retrying in ${Math.ceil(timeUntilReady / 1000)}s...`);
@@ -731,6 +752,8 @@ export const useGrokRetry = ({ postId, mediaId }: PostRouteIdentity) => {
         },
         [
             lastClickTime,
+            lastFailureTime,
+            retryClickCooldown,
             save,
             postData.canRetry,
             postData.lastPromptValue,
@@ -779,7 +802,8 @@ export const useGrokRetry = ({ postId, mediaId }: PostRouteIdentity) => {
                     w.__grok_schedulerTick = (w.__grok_schedulerTick || 0) + 1;
                 } catch {}
                 const now = Date.now();
-                const spacingOk = now - lastClickTime >= CLICK_COOLDOWN;
+                const cooldownBase = Math.max(lastClickTime, postData.lastFailureTime);
+                const spacingOk = now - cooldownBase >= retryClickCooldown;
                 const underLimit = postData.retryCount < postData.maxRetries;
                 const permitted = postData.canRetry === true;
                 const goalReached = postData.videoGoal > 0 && postData.videosGenerated >= postData.videoGoal;
@@ -889,7 +913,9 @@ export const useGrokRetry = ({ postId, mediaId }: PostRouteIdentity) => {
         postData.canRetry,
         postData.videoGoal,
         postData.videosGenerated,
+        postData.lastFailureTime,
         lastClickTime,
+        retryClickCooldown,
         isLoading,
         postId,
         clickMakeVideoButton,
@@ -941,6 +967,9 @@ export const useGrokRetry = ({ postId, mediaId }: PostRouteIdentity) => {
             resetVideosGenerated,
             markFailureDetected,
             clearLogs,
+
+            // Timing settings (from global settings)
+            videoGenerationDelay,
         }),
         [
             postData.retryCount,
@@ -975,6 +1004,7 @@ export const useGrokRetry = ({ postId, mediaId }: PostRouteIdentity) => {
             resetVideosGenerated,
             markFailureDetected,
             clearLogs,
+            videoGenerationDelay,
         ]
     );
 };

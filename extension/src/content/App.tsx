@@ -78,6 +78,7 @@ const ImaginePostApp: React.FC = () => {
         clearLogs,
         lastSessionOutcome,
         lastSessionSummary,
+        videoGenerationDelay,
     } = retry;
     const { data: uiPrefs, save: saveUIPref } = useStorage();
     const { capturePromptFromSite, copyPromptToSite, setupClickListener } = usePromptCapture();
@@ -231,7 +232,7 @@ const ImaginePostApp: React.FC = () => {
                 clearTimeout(nextVideoTimeoutRef.current);
             }
 
-            // Wait 8 seconds before next generation
+            // Wait before next generation
             nextVideoTimeoutRef.current = setTimeout(() => {
                 // Check if session is still active before proceeding
                 if (!isSessionActive) {
@@ -242,7 +243,7 @@ const ImaginePostApp: React.FC = () => {
                 // Use overridePermit since this is a new video generation, not a retry
                 clickMakeVideoButton(lastPromptValue, { overridePermit: true });
                 nextVideoTimeoutRef.current = null;
-            }, 8000);
+            }, videoGenerationDelay);
         }
     }, [
         incrementVideosGenerated,
@@ -252,6 +253,7 @@ const ImaginePostApp: React.FC = () => {
         clickMakeVideoButton,
         lastPromptValue,
         recordPromptOutcome,
+        videoGenerationDelay,
     ]);
 
     // End session when video goal is reached — runs after videosGenerated state
